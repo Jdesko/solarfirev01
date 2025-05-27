@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Monitor Solar - Casa</title>
+    <style>
+        :root {
+            --primary: #4285f4;
+            --generation: #34a853;    /* verde - produção */
+            --import: #ea4335;        /* vermelho - importação */
+            --consumption: #fbbc05;   /* amarelo - consumo */
+            --positive-flow: #ea4335; /* vermelho */
+            --negative-flow: #34a853; /* verde */
+            --connection-line: #666;   /* cinza para linhas */
+            --text: #202124;
+            --background: #f8f9fa;
+            --card-bg: #ffffff;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            margin: 0;
+            padding: 15px;
+            min-height: 100vh;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+            width: 100%;
+        }
+        
+        .header h1 {
+            color: var(--primary);
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        
+        .header p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        /* Container principal responsivo */
+        .house-monitor {
+            position: relative;
+            width: 100%;
+            height: 0;
+            padding-bottom: 75%; /* Proporção 4:3 */
+            background-image: url('assets/img/casa-com-paineis-marcada.jpg');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            margin: 0 auto 15px;
+        }
+        
+        /* Estilo dos círculos de energia */
+        .energy-circle {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+        
+        .circle-value {
+            font-size: 16px;
+            margin-bottom: 2px;
+        }
+        
+        .circle-label {
+            font-size: 10px;
+            text-align: center;
+            line-height: 1.1;
+        }
+        
+        /* Posições dos círculos para mobile */
+        .circle-generation {
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--generation);
+        }
+        
+        .circle-consumption {
+            top: 70%;
+            left: 30%;
+            background-color: var(--consumption);
+        }
+        
+        .circle-import {
+            top: 15%;
+            left: 15%;
+            background-color: var(--import);
+        }
+        
+        /* Voltagem e controles */
+        .voltage-container {
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 12px;
+            margin-bottom: 15px;
+            text-align: center;
+            width: 100%;
+        }
+        
+        .voltage-header {
+            background-color: #9c27b0;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: inline-block;
+            font-size: 0.8rem;
+        }
+        
+        .voltage-value {
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: #9c27b0;
+            margin: 5px 0;
+        }
+        
+        .footer {
+            width: 100%;
+            text-align: center;
+        }
+        
+        .last-update {
+            font-size: 0.8rem;
+            color: #9aa0a6;
+            margin-bottom: 5px;
+        }
+        
+        .error-message {
+            color: #d32f2f;
+            text-align: center;
+            margin: 5px 0;
+            font-size: 0.8rem;
+            min-height: 1.2rem;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        
+        .refresh-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background-color 0.2s;
+        }
+        
+        .refresh-btn:hover {
+            background-color: #3367d6;
+        }
+        
+        .loading {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Menu mobile */
+        .menu-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 100;
+            border: none;
+        }
+
+        /* Media queries para tablets */
+        @media (min-width: 600px) {
+            .house-monitor {
+                max-width: 500px;
+                padding-bottom: 375px; /* Mantém proporção */
+            }
+            
+            .energy-circle {
+                width: 70px;
+                height: 70px;
+            }
+            
+            .circle-value {
+                font-size: 18px;
+            }
+            
+            .circle-label {
+                font-size: 11px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Monitoramento Solar</h1>
+        <p>Fluxo de energia em tempo real</p>
+    </div>
+    
+    <!-- Voltagem média -->
+    <div class="voltage-container">
+        <div class="voltage-header">Voltagem da Rede</div>
+        <div class="voltage-value" id="avgVoltage">--</div>
+    </div>
+    
+    <!-- Monitor com imagem da casa -->
+    <div class="house-monitor">
+        <!-- Círculos de energia -->
+        <div class="energy-circle circle-generation" id="generationCircle">
+            <div class="circle-value" id="generationPower">--</div>
+            <div class="circle-label">Produção Solar</div>
+        </div>
+        
+        <div class="energy-circle circle-consumption" id="consumptionCircle">
+            <div class="circle-value" id="consumptionPower">--</div>
+            <div class="circle-label">Consumo</div>
+        </div>
+        
+        <div class="energy-circle circle-import" id="importCircle">
+            <div class="circle-value" id="importPower">--</div>
+            <div class="circle-label">Rede Elétrica</div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <div class="last-update" id="lastUpdate">
+            Última atualização: --
+        </div>
+        
+        <div id="errorDisplay" class="error-message"></div>
+        
+        <div class="controls">
+            <button class="refresh-btn" id="refreshBtn">
+                <span id="refreshIcon">↻</span>
+                Atualizar
+            </button>
+        </div>
+    </div>
+
+    <!-- Botão de menu mobile -->
+    <button class="menu-btn" id="menuBtn">☰</button>
+
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+    <script>
+        // Configuração do Firebase (substitua com suas credenciais)
+        const firebaseConfig = {
+            apiKey: "AIzaSyD1m0_V8sdXhQueR-8llIXB489cpoM8vBU",
+            authDomain: "solarfirebase-bb98f.firebaseapp.com",
+            databaseURL: "https://solarfirebase-bb98f-default-rtdb.firebaseio.com",
+            projectId: "solarfirebase-bb98f",
+            storageBucket: "solarfirebase-bb98f.firebasestorage.app",
+            messagingSenderId: "480963796966",
+            appId: "1:480963796966:web:47dbaf360f269af2dcc027",
+            measurementId: "G-QSRE1XPK4S"
+        };
+       // Registra o Service Worker
+       if ('serviceWorker' in navigator) {
+         navigator.serviceWorker.register('/firebase-messaging-sw.js')
+         .then((registration) => {
+            console.log('Service Worker registrado com sucesso:', registration);
+    })
+    .    catch((error) => {
+         console.log('Falha no registro do Service Worker:', error);
+    });
+}
+        // Inicialize o Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Verificação de autenticação
+        firebase.auth().onAuthStateChanged((user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            }
+        });
+
+        // Função para salvar dados no Firebase
+        function saveSolarData(data) {
+            const timestamp = Date.now();
+            const dataRef = database.ref('solarData/' + timestamp);
+            
+            dataRef.set({
+                timestamp: timestamp,
+                voltage: data.voltage,
+                importPower: data.importPower,
+                generationPower: data.generationPower,
+                consumptionPower: data.consumptionPower,
+                deviceId: CONFIG.deviceId
+            }).then(() => {
+                console.log("Dados salvos com sucesso!");
+            }).catch((error) => {
+                console.error("Erro ao salvar dados:", error);
+            });
+        }
+
+        // CONFIGURAÇÃO
+        const CONFIG = {
+            deviceId: "c45bbee1fd27",
+            authKey: "MjFkM2IxdWlk87450512E000570046BE7579151D5C48F4FED67642847DD24161500B8A5B0CA7000733819F55FC2C",
+            refreshInterval: 5000,
+            saveInterval: 60000 // Salva a cada 1 minuto
+        };
+
+        // Elementos da interface
+        const elements = {
+            avgVoltage: document.getElementById('avgVoltage'),
+            importPower: document.getElementById('importPower'),
+            consumptionPower: document.getElementById('consumptionPower'),
+            generationPower: document.getElementById('generationPower'),
+            importCircle: document.getElementById('importCircle'),
+            consumptionCircle: document.getElementById('consumptionCircle'),
+            generationCircle: document.getElementById('generationCircle'),
+            lastUpdate: document.getElementById('lastUpdate'),
+            refreshBtn: document.getElementById('refreshBtn'),
+            refreshIcon: document.getElementById('refreshIcon'),
+            errorDisplay: document.getElementById('errorDisplay'),
+            menuBtn: document.getElementById('menuBtn')
+        };
+
+        // Funções auxiliares
+        const helpers = {
+            formatNumber: (num) => {
+                return parseFloat(num).toFixed(0);
+            },
+            
+            formatVoltage: (num) => {
+                return parseFloat(num).toFixed(1);
+            },
+            
+            formatDateTime: (date) => {
+                return date.toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            },
+            
+            setLoading: (state) => {
+                if (state) {
+                    elements.refreshIcon.classList.add('loading');
+                    elements.refreshBtn.disabled = true;
+                } else {
+                    elements.refreshIcon.classList.remove('loading');
+                    elements.refreshBtn.disabled = false;
+                }
+            },
+            
+            showError: (message) => {
+                elements.errorDisplay.textContent = message;
+                setTimeout(() => {
+                    elements.errorDisplay.textContent = '';
+                }, 5000);
+            },
+            
+            resetValues: () => {
+                elements.avgVoltage.textContent = '--';
+                elements.importPower.textContent = '--';
+                elements.consumptionPower.textContent = '--';
+                elements.generationPower.textContent = '--';
+            }
+        };
+
+        // Busca os dados do Shelly EM
+        async function fetchData() {
+            helpers.setLoading(true);
+            helpers.resetValues();
+            
+            try {
+                const timestamp = Date.now();
+                const apiUrl = `https://shelly-96-eu.shelly.cloud/device/status?id=${CONFIG.deviceId}&auth_key=${CONFIG.authKey}&_=${timestamp}`;
+                
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`Erro na requisição: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data || !data.isok || !data.data || !data.data.device_status) {
+                    throw new Error("Resposta inválida da API");
+                }
+                
+                const emeters = data.data.device_status.emeters;
+                const now = new Date();
+                
+                if (emeters && emeters.length >= 2) {
+                    // Voltagem média
+                    const avgVoltage = (parseFloat(emeters[0].voltage || 0) + parseFloat(emeters[1].voltage || 0)) / 2;
+                    elements.avgVoltage.textContent = helpers.formatVoltage(avgVoltage);
+                    
+                    // Canal 0 - Importação da rede
+                    const importPower = parseFloat(emeters[0].power || 0);
+                    elements.importPower.textContent = helpers.formatNumber(importPower);
+                    
+                    // Canal 1 - Geração solar
+                    const generationPower = parseFloat(emeters[1].power || 0);
+                    elements.generationPower.textContent = helpers.formatNumber(generationPower);
+                    
+                    // Calcula consumo (importação + geração)
+                    const consumptionPower = importPower + generationPower;
+                    elements.consumptionPower.textContent = helpers.formatNumber(consumptionPower);
+                    
+                    // Salva os dados periodicamente
+                    if (timestamp % CONFIG.saveInterval < CONFIG.refreshInterval) {
+                        saveSolarData({
+                            voltage: avgVoltage,
+                            importPower: importPower,
+                            generationPower: generationPower,
+                            consumptionPower: consumptionPower
+                        });
+                    }
+                    
+                    // Atualiza cores dos círculos
+                    if (importPower < 0) {
+                        elements.importCircle.style.backgroundColor = 'var(--generation)';
+                    } else {
+                        elements.importCircle.style.backgroundColor = 'var(--import)';
+                    }
+                }
+                
+                elements.lastUpdate.textContent = `Última atualização: ${helpers.formatDateTime(now)}`;
+                
+            } catch (error) {
+                console.error("Erro ao buscar dados:", error);
+                helpers.showError(`Erro: ${error.message}`);
+            } finally {
+                helpers.setLoading(false);
+            }
+        }
+
+        // Configura eventos
+        elements.refreshBtn.addEventListener('click', fetchData);
+        
+        // Menu mobile
+        elements.menuBtn.addEventListener('click', () => {
+            // Adicione aqui a lógica do menu se necessário
+            alert('Menu de opções');
+        });
+        
+        // Atualização automática
+        let intervalId;
+        function startAutoRefresh() {
+            fetchData();
+            intervalId = setInterval(fetchData, CONFIG.refreshInterval);
+        }
+        
+        // Controle de atualização quando a página está visível/oculta
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearInterval(intervalId);
+            } else {
+                startAutoRefresh();
+            }
+        });
+        
+        // Inicia o monitoramento
+        startAutoRefresh();
+
+        // Previne o zoom com dois dedos
+        document.addEventListener('gesturestart', function(e) {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>
