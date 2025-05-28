@@ -7,12 +7,9 @@
     <style>
         :root {
             --primary: #4285f4;
-            --generation: #34a853;    /* verde - produção */
-            --import: #ea4335;        /* vermelho - importação */
-            --consumption: #fbbc05;   /* amarelo - consumo */
-            --positive-flow: #ea4335; /* vermelho */
-            --negative-flow: #34a853; /* verde */
-            --connection-line: #666;   /* cinza para linhas */
+            --generation: #34a853;
+            --import: #ea4335;
+            --consumption: #fbbc05;
             --text: #202124;
             --background: #f8f9fa;
             --card-bg: #ffffff;
@@ -49,12 +46,11 @@
             color: #666;
         }
         
-        /* Container principal responsivo */
         .house-monitor {
             position: relative;
             width: 100%;
             height: 0;
-            padding-bottom: 75%; /* Proporção 4:3 */
+            padding-bottom: 75%;
             background-image: url('assets/img/casa-com-paineis-marcada.jpg');
             background-size: contain;
             background-repeat: no-repeat;
@@ -62,7 +58,6 @@
             margin: 0 auto 15px;
         }
         
-        /* Estilo dos círculos de energia */
         .energy-circle {
             position: absolute;
             width: 60px;
@@ -89,7 +84,6 @@
             line-height: 1.1;
         }
         
-        /* Posições dos círculos para mobile */
         .circle-generation {
             top: 10%;
             left: 50%;
@@ -109,7 +103,6 @@
             background-color: var(--import);
         }
         
-        /* Voltagem e controles */
         .voltage-container {
             background-color: var(--card-bg);
             border-radius: 10px;
@@ -190,7 +183,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* Menu mobile */
         .menu-btn {
             position: fixed;
             bottom: 20px;
@@ -208,11 +200,22 @@
             border: none;
         }
 
-        /* Media queries para tablets */
+        .logout-btn {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 100;
+        }
+
         @media (min-width: 600px) {
             .house-monitor {
                 max-width: 500px;
-                padding-bottom: 375px; /* Mantém proporção */
+                padding-bottom: 375px;
             }
             
             .energy-circle {
@@ -231,20 +234,20 @@
     </style>
 </head>
 <body>
+    <!-- Botão de Logout -->
+    <button class="logout-btn" id="logoutBtn">Sair</button>
+
     <div class="header">
         <h1>Monitoramento Solar</h1>
         <p>Fluxo de energia em tempo real</p>
     </div>
     
-    <!-- Voltagem média -->
     <div class="voltage-container">
         <div class="voltage-header">Voltagem da Rede</div>
         <div class="voltage-value" id="avgVoltage">--</div>
     </div>
     
-    <!-- Monitor com imagem da casa -->
     <div class="house-monitor">
-        <!-- Círculos de energia -->
         <div class="energy-circle circle-generation" id="generationCircle">
             <div class="circle-value" id="generationPower">--</div>
             <div class="circle-label">Produção Solar</div>
@@ -276,72 +279,39 @@
         </div>
     </div>
 
-    <!-- Botão de menu mobile -->
     <button class="menu-btn" id="menuBtn">☰</button>
 
-    <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-
     <script>
-        // Configuração do Firebase (substitua com suas credenciais)
-        const firebaseConfig = {
-            apiKey: "AIzaSyD1m0_V8sdXhQueR-8llIXB489cpoM8vBU",
-            authDomain: "solarfirebase-bb98f.firebaseapp.com",
-            databaseURL: "https://solarfirebase-bb98f-default-rtdb.firebaseio.com",
-            projectId: "solarfirebase-bb98f",
-            storageBucket: "solarfirebase-bb98f.firebasestorage.app",
-            messagingSenderId: "480963796966",
-            appId: "1:480963796966:web:47dbaf360f269af2dcc027",
-            measurementId: "G-QSRE1XPK4S"
-        };
-       // Registra o Service Worker
-       if ('serviceWorker' in navigator) {
-         navigator.serviceWorker.register('/firebase-messaging-sw.js')
-         .then((registration) => {
-            console.log('Service Worker registrado com sucesso:', registration);
-    })
-    .    catch((error) => {
-         console.log('Falha no registro do Service Worker:', error);
-    });
-}
-        // Inicialize o Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-
-        // Verificação de autenticação
-        firebase.auth().onAuthStateChanged((user) => {
-            if (!user) {
+        // Verificação de autenticação simplificada
+        document.addEventListener('DOMContentLoaded', () => {
+            const isLoggedIn = sessionStorage.getItem('loggedIn') === 'true';
+            const username = sessionStorage.getItem('username');
+            
+            if (!isLoggedIn || username !== 'jfcd') {
                 window.location.href = 'index.html';
+                return;
             }
+            
+            // Mostra o nome do usuário
+            document.querySelector('.header p').textContent += ` | Usuário: ${username}`;
+            
+            // Inicializa o monitoramento
+            startAutoRefresh();
         });
 
-        // Função para salvar dados no Firebase
-        function saveSolarData(data) {
-            const timestamp = Date.now();
-            const dataRef = database.ref('solarData/' + timestamp);
-            
-            dataRef.set({
-                timestamp: timestamp,
-                voltage: data.voltage,
-                importPower: data.importPower,
-                generationPower: data.generationPower,
-                consumptionPower: data.consumptionPower,
-                deviceId: CONFIG.deviceId
-            }).then(() => {
-                console.log("Dados salvos com sucesso!");
-            }).catch((error) => {
-                console.error("Erro ao salvar dados:", error);
-            });
-        }
+        // Função de logout
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            sessionStorage.removeItem('loggedIn');
+            sessionStorage.removeItem('username');
+            window.location.href = 'index.html';
+        });
 
         // CONFIGURAÇÃO
         const CONFIG = {
             deviceId: "c45bbee1fd27",
             authKey: "MjFkM2IxdWlk87450512E000570046BE7579151D5C48F4FED67642847DD24161500B8A5B0CA7000733819F55FC2C",
             refreshInterval: 5000,
-            saveInterval: 60000 // Salva a cada 1 minuto
+            saveInterval: 60000
         };
 
         // Elementos da interface
@@ -362,39 +332,21 @@
 
         // Funções auxiliares
         const helpers = {
-            formatNumber: (num) => {
-                return parseFloat(num).toFixed(0);
-            },
-            
-            formatVoltage: (num) => {
-                return parseFloat(num).toFixed(1);
-            },
-            
-            formatDateTime: (date) => {
-                return date.toLocaleTimeString('pt-BR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-            },
-            
+            formatNumber: (num) => parseFloat(num).toFixed(0),
+            formatVoltage: (num) => parseFloat(num).toFixed(1),
+            formatDateTime: (date) => date.toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }),
             setLoading: (state) => {
-                if (state) {
-                    elements.refreshIcon.classList.add('loading');
-                    elements.refreshBtn.disabled = true;
-                } else {
-                    elements.refreshIcon.classList.remove('loading');
-                    elements.refreshBtn.disabled = false;
-                }
+                elements.refreshIcon.classList.toggle('loading', state);
+                elements.refreshBtn.disabled = state;
             },
-            
             showError: (message) => {
                 elements.errorDisplay.textContent = message;
-                setTimeout(() => {
-                    elements.errorDisplay.textContent = '';
-                }, 5000);
+                setTimeout(() => elements.errorDisplay.textContent = '', 5000);
             },
-            
             resetValues: () => {
                 elements.avgVoltage.textContent = '--';
                 elements.importPower.textContent = '--';
@@ -414,52 +366,27 @@
                 
                 const response = await fetch(apiUrl);
                 
-                if (!response.ok) {
-                    throw new Error(`Erro na requisição: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Erro na requisição: ${response.status}`);
                 
                 const data = await response.json();
                 
-                if (!data || !data.isok || !data.data || !data.data.device_status) {
-                    throw new Error("Resposta inválida da API");
-                }
+                if (!data?.isok || !data?.data?.device_status) throw new Error("Resposta inválida da API");
                 
                 const emeters = data.data.device_status.emeters;
                 const now = new Date();
                 
-                if (emeters && emeters.length >= 2) {
-                    // Voltagem média
+                if (emeters?.length >= 2) {
                     const avgVoltage = (parseFloat(emeters[0].voltage || 0) + parseFloat(emeters[1].voltage || 0)) / 2;
-                    elements.avgVoltage.textContent = helpers.formatVoltage(avgVoltage);
-                    
-                    // Canal 0 - Importação da rede
                     const importPower = parseFloat(emeters[0].power || 0);
-                    elements.importPower.textContent = helpers.formatNumber(importPower);
-                    
-                    // Canal 1 - Geração solar
                     const generationPower = parseFloat(emeters[1].power || 0);
-                    elements.generationPower.textContent = helpers.formatNumber(generationPower);
-                    
-                    // Calcula consumo (importação + geração)
                     const consumptionPower = importPower + generationPower;
+                    
+                    elements.avgVoltage.textContent = helpers.formatVoltage(avgVoltage);
+                    elements.importPower.textContent = helpers.formatNumber(importPower);
+                    elements.generationPower.textContent = helpers.formatNumber(generationPower);
                     elements.consumptionPower.textContent = helpers.formatNumber(consumptionPower);
                     
-                    // Salva os dados periodicamente
-                    if (timestamp % CONFIG.saveInterval < CONFIG.refreshInterval) {
-                        saveSolarData({
-                            voltage: avgVoltage,
-                            importPower: importPower,
-                            generationPower: generationPower,
-                            consumptionPower: consumptionPower
-                        });
-                    }
-                    
-                    // Atualiza cores dos círculos
-                    if (importPower < 0) {
-                        elements.importCircle.style.backgroundColor = 'var(--generation)';
-                    } else {
-                        elements.importCircle.style.backgroundColor = 'var(--import)';
-                    }
+                    elements.importCircle.style.backgroundColor = importPower < 0 ? 'var(--generation)' : 'var(--import)';
                 }
                 
                 elements.lastUpdate.textContent = `Última atualização: ${helpers.formatDateTime(now)}`;
@@ -474,12 +401,7 @@
 
         // Configura eventos
         elements.refreshBtn.addEventListener('click', fetchData);
-        
-        // Menu mobile
-        elements.menuBtn.addEventListener('click', () => {
-            // Adicione aqui a lógica do menu se necessário
-            alert('Menu de opções');
-        });
+        elements.menuBtn.addEventListener('click', () => alert('Menu de opções'));
         
         // Atualização automática
         let intervalId;
@@ -488,22 +410,11 @@
             intervalId = setInterval(fetchData, CONFIG.refreshInterval);
         }
         
-        // Controle de atualização quando a página está visível/oculta
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                clearInterval(intervalId);
-            } else {
-                startAutoRefresh();
-            }
+            document.hidden ? clearInterval(intervalId) : startAutoRefresh();
         });
         
-        // Inicia o monitoramento
-        startAutoRefresh();
-
-        // Previne o zoom com dois dedos
-        document.addEventListener('gesturestart', function(e) {
-            e.preventDefault();
-        });
+        document.addEventListener('gesturestart', e => e.preventDefault());
     </script>
 </body>
 </html>
