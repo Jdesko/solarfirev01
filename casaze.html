@@ -316,7 +316,7 @@
                 startAutoRefresh();
             }
         });
-
+         
         // Função de logout
         document.getElementById('logoutBtn').addEventListener('click', () => {
             firebase.auth().signOut().then(() => {
@@ -347,6 +347,16 @@
             errorDisplay: document.getElementById('errorDisplay'),
             menuBtn: document.getElementById('menuBtn')
         };
+        // Verifica o status da conexão
+const connectionRef = firebase.database().ref('.info/connected');
+connectionRef.on('value', (snapshot) => {
+    if (snapshot.val() === true) {
+        console.log("Conectado ao Firebase");
+    } else {
+        console.log("Sem conexão com o Firebase");
+        // Pode implementar um cache local aqui
+    }
+});
 
         // Funções auxiliares
         const helpers = {
