@@ -213,6 +213,12 @@
             font-size: 0.8rem;
         }
 
+        .save-status {
+            font-size: 0.7rem;
+            color: #34a853;
+            margin-top: 5px;
+        }
+
         @media (min-width: 600px) {
             .house-monitor {
                 max-width: 500px;
@@ -269,7 +275,7 @@
         <div class="last-update" id="lastUpdate">
             Última atualização: --
         </div>
-        
+        <div id="saveStatus" class="save-status"></div>
         <div id="errorDisplay" class="error-message"></div>
         
         <div class="controls">
@@ -300,15 +306,25 @@
             measurementId: "G-QSRE1XPK4S"
         };
 
-        // Inicialize o Firebase
-        firebase.initializeApp(firebaseConfig);
+        // Verifique se o Firebase foi inicializado corretamente
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        } else {
+            firebase.app(); // Já inicializado, use o padrão
+        }
+
+        // Ative a persistência offline
+        firebase.database().setPersistenceEnabled(true)
+            .catch((error) => {
+                console.error("Erro ao ativar persistência:", error);
+            });
 
         // Verificação de autenticação
         firebase.auth().onAuthStateChanged((user) => {
             if (!user) {
                 window.location.href = 'index.html';
             } else {
-                // Mostra o nome do usuário (remove o @solar.com)
+                // Mostra o nome do usuário
                 const username = user.email.replace('@solar.com', '');
                 document.querySelector('.header p').textContent += ` | Usuário: ${username}`;
                 
@@ -345,31 +361,23 @@
             refreshBtn: document.getElementById('refreshBtn'),
             refreshIcon: document.getElementById('refreshIcon'),
             errorDisplay: document.getElementById('errorDisplay'),
-            menuBtn: document.getElementById('menuBtn')
+            menuBtn: document.getElementById('menuBtn'),
+            saveStatus: document.getElementById('saveStatus')
         };
+
+        // Variáveis de estado
+        let lastSaveTime = 0;
+        let intervalId;
+        let saveIntervalId;
 
         // Verifica o status da conexão
         const connectionRef = firebase.database().ref('.info/connected');
         connectionRef.on('value', (snapshot) => {
-            if (snapshot.val() === true) {
-                console.log("Conectado ao Firebase");
-            } else {
-                console.log("Sem conexão com o Firebase");
-                // Pode implementar um cache local aqui
+            if (snapshot.val() === true && Date.now() - lastSaveTime > CONFIG.saveInterval * 2) {
+                // Se conectado mas não salvou há muito tempo, força um salvamento
+                saveDataToFirebase();
             }
         });
-
-        // Caminhos do Firebase Database
-        function getDbPaths() {
-            const user = firebase.auth().currentUser;
-            if (!user) return null;
-            
-            return {
-                energyData: `users/${user.uid}/energyData`,
-                latestData: `users/${user.uid}/latestData`,
-                stats: `users/${user.uid}/stats`
-            };
-        }
 
         // Funções auxiliares
         const helpers = {
@@ -388,6 +396,11 @@
                 elements.errorDisplay.textContent = message;
                 setTimeout(() => elements.errorDisplay.textContent = '', 5000);
             },
+            showSaveStatus: (message, isError = false) => {
+                elements.saveStatus.textContent = message;
+                elements.saveStatus.style.color = isError ? '#ea4335' : '#34a853';
+                setTimeout(() => elements.saveStatus.textContent = '', 5000);
+            },
             resetValues: () => {
                 elements.avgVoltage.textContent = '--';
                 elements.importPower.textContent = '--';
@@ -399,7 +412,6 @@
         // Busca os dados do Shelly EM
         async function fetchData() {
             helpers.setLoading(true);
-            helpers.resetValues();
             
             try {
                 const timestamp = Date.now();
@@ -445,44 +457,101 @@
             try {
                 const db = firebase.database();
                 const now = Date.now();
-                const paths = getDbPaths();
+                const user = firebase.auth().currentUser;
                 
-                if (!paths) throw new Error("Usuário não autenticado");
+                if (!user) {
+                    throw new Error("Usuário não autenticado");
+                }
                 
                 // Verifica se temos dados válidos para salvar
-                if (elements.avgVoltage.textContent !== '--' && 
-                    elements.consumptionPower.textContent !== '--') {
-                    
-                    const dataToSave = {
-                        timestamp: now,
-                        voltage: parseFloat(elements.avgVoltage.textContent),
-                        consumption: parseFloat(elements.consumptionPower.textContent),
-                        generation: parseFloat(elements.generationPower.textContent),
-                        import: parseFloat(elements.importPower.textContent)
-                    };
-                    
-                    // Salva no histórico
-                    await db.ref(`${paths.energyData}/${now}`).set(dataToSave);
-                    
-                    // Atualiza os últimos dados
-                    await db.ref(paths.latestData).set(dataToSave);
-                    
-                    console.log("Dados salvos no Firebase:", dataToSave);
+                if (elements.avgVoltage.textContent === '--' || 
+                    elements.consumptionPower.textContent === '--') {
+                    return; // Sai se dados não estiverem prontos
                 }
+                
+                const dataToSave = {
+                    timestamp: now,
+                    voltage: parseFloat(elements.avgVoltage.textContent),
+                    consumption: parseFloat(elements.consumptionPower.textContent),
+                    generation: parseFloat(elements.generationPower.textContent),
+                    import: parseFloat(elements.importPower.textContent),
+                    deviceId: CONFIG.deviceId
+                };
+                
+                // Caminhos do Firebase
+                const paths = {
+                    energyData: `users/${user.uid}/energyData/${now}`,
+                    latestData: `users/${user.uid}/latestData`,
+                    dailyStats: `users/${user.uid}/dailyStats/${new Date().toISOString().split('T')[0]}`
+                };
+                
+                // Salva nos três locais simultaneamente
+                const updates = {
+                    [paths.energyData]: dataToSave,
+                    [paths.latestData]: dataToSave
+                };
+                
+                // Atualiza estatísticas diárias
+                const dailyStatsRef = db.ref(paths.dailyStats);
+                const dailyStatsSnapshot = await dailyStatsRef.once('value');
+                
+                if (dailyStatsSnapshot.exists()) {
+                    const existingData = dailyStatsSnapshot.val();
+                    updates[paths.dailyStats] = {
+                        maxConsumption: Math.max(existingData.maxConsumption || 0, dataToSave.consumption),
+                        totalGeneration: (existingData.totalGeneration || 0) + dataToSave.generation,
+                        lastUpdate: now
+                    };
+                } else {
+                    updates[paths.dailyStats] = {
+                        maxConsumption: dataToSave.consumption,
+                        totalGeneration: dataToSave.generation,
+                        firstUpdate: now,
+                        lastUpdate: now
+                    };
+                }
+                
+                // Executa todas as atualizações em uma única transação
+                await db.ref().update(updates);
+                
+                lastSaveTime = Date.now();
+                helpers.showSaveStatus("Dados salvos com sucesso!");
+                console.log("Dados salvos com sucesso:", dataToSave);
+                
             } catch (error) {
-                console.error("Erro ao salvar dados no Firebase:", error);
-                helpers.showError(`Erro ao salvar dados: ${error.message}`);
+                console.error("Falha ao salvar dados:", error);
+                helpers.showSaveStatus(`Erro ao salvar: ${error.message}`, true);
+                
+                // Tenta novamente após 30 segundos em caso de erro
+                setTimeout(saveDataToFirebase, 30000);
             }
         }
 
         // Atualização automática
-        let intervalId;
-        let saveIntervalId;
-        
         function startAutoRefresh() {
-            fetchData();
+            // Para quaisquer intervalos existentes
+            stopAutoRefresh();
+            
+            // Busca dados imediatamente
+            fetchData().then(() => {
+                // Salva imediatamente após a primeira leitura
+                saveDataToFirebase();
+            });
+            
+            // Configura intervalos
             intervalId = setInterval(fetchData, CONFIG.refreshInterval);
             saveIntervalId = setInterval(saveDataToFirebase, CONFIG.saveInterval);
+            
+            // Atualiza status do próximo salvamento
+            setInterval(() => {
+                const nextSaveIn = Math.max(0, CONFIG.saveInterval - (Date.now() - lastSaveTime));
+                elements.saveStatus.textContent = `Próximo salvamento em: ${Math.round(nextSaveIn/1000)}s`;
+            }, 1000);
+            
+            // Força um salvamento quando a página está sendo fechada
+            window.addEventListener('beforeunload', () => {
+                saveDataToFirebase();
+            });
         }
         
         function stopAutoRefresh() {
@@ -501,8 +570,8 @@
         // Configura eventos
         elements.refreshBtn.addEventListener('click', fetchData);
         elements.menuBtn.addEventListener('click', () => {
-         window.location.href = 'dashboard.html';
-         });
+            window.location.href = 'dashboard.html';
+        });
         
         // Previne zoom com gestos
         document.addEventListener('gesturestart', e => e.preventDefault());
