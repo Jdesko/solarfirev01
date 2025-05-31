@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Solar</title>
+    <style>
+        :root {
+            --primary: #4285f4;
+            --generation: #34a853;
+            --import: #ea4335;
+            --consumption: #fbbc05;
+            --text: #202124;
+            --background: #f8f9fa;
+            --card-bg: #ffffff;
+        }
+        
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            margin: 0;
+            padding: 15px;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: var(--primary);
+            margin: 0;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        .logout-btn {
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+        
+        .back-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        
+        .data-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .data-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        @media (max-width: 600px) {
+            th, td {
+                padding: 8px 10px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <button class="back-btn" id="backBtn">← Voltar</button>
+            <h1>Dashboard Solar</h1>
+        </div>
+        <button class="logout-btn" id="logoutBtn">Sair</button>
+    </div>
+    
+    <div class="card">
+        <h2>Última Leitura</h2>
+        <div id="latestData">
+            <div class="data-label">Carregando dados...</div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>Histórico (Últimas 24 horas)</h2>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Voltagem (V)</th>
+                        <th>Consumo (W)</th>
+                        <th>Geração (W)</th>
+                        <th>Rede (W)</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr>
+                        <td colspan="5">Carregando histórico...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+    <script>
+        // Configuração do Firebase (igual à sua aplicação principal)
+        const firebaseConfig = {
+            apiKey: "AIzaSyD1m0_V8sdXhQueR-8llIXB489cpoM8vBU",
+            authDomain: "solarfirebase-bb98f.firebaseapp.com",
+            databaseURL: "https://solarfirebase-bb98f-default-rtdb.firebaseio.com",
+            projectId: "solarfirebase-bb98f",
+            storageBucket: "solarfirebase-bb98f.appspot.com",
+            messagingSenderId: "480963796966",
+            appId: "1:480963796966:web:47dbaf360f269af2dcc027",
+            measurementId: "G-QSRE1XPK4S"
+        };
+        
+        // Inicialize o Firebase
+        firebase.initializeApp(firebaseConfig);
+
+        // Verificação de autenticação
+        firebase.auth().onAuthStateChanged((user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            } else {
+                loadData(user.uid);
+                document.querySelector('.header h1').textContent += ` - ${user.email.replace('@solar.com', '')}`;
+            }
+        });
+
+        // Função para carregar dados
+        function loadData(userId) {
+            const db = firebase.database();
+            
+            // Carrega últimos dados
+            db.ref(`users/${userId}/latestData`).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    document.getElementById('latestData').innerHTML = `
+                        <div class="data-label">Data/Hora</div>
+                        <div class="data-value">${new Date(data.timestamp).toLocaleString('pt-BR')}</div>
+                        
+                        <div class="data-label">Voltagem</div>
+                        <div class="data-value" style="color: #9c27b0;">${data.voltage} V</div>
+                        
+                        <div class="data-label">Consumo</div>
+                        <div class="data-value" style="color: var(--consumption);">${data.consumption} W</div>
+                        
+                        <div class="data-label">Geração Solar</div>
+                        <div class="data-value" style="color: var(--generation);">${data.generation} W</div>
+                        
+                        <div class="data-label">Rede Elétrica</div>
+                        <div class="data-value" style="color: var(--import);">${data.import} W</div>
+                    `;
+                }
+            });
+            
+            // Carrega histórico (últimas 24h)
+            const now = Date.now();
+            const yesterday = now - 24 * 60 * 60 * 1000;
+            
+            db.ref(`users/${userId}/energyData`)
+              .orderByChild('timestamp')
+              .startAt(yesterday)
+              .on('value', (snapshot) => {
+                  const historyBody = document.getElementById('historyBody');
+                  historyBody.innerHTML = '';
+                  
+                  if (!snapshot.exists()) {
+                      historyBody.innerHTML = `
+                          <tr>
+                              <td colspan="5">Nenhum dado encontrado nas últimas 24 horas</td>
+                          </tr>
+                      `;
+                      return;
+                  }
+                  
+                  snapshot.forEach((childSnapshot) => {
+                      const data = childSnapshot.val();
+                      const row = document.createElement('tr');
+                      
+                      row.innerHTML = `
+                          <td>${new Date(data.timestamp).toLocaleString('pt-BR')}</td>
+                          <td>${data.voltage}</td>
+                          <td>${data.consumption}</td>
+                          <td>${data.generation}</td>
+                          <td style="color: ${data.import < 0 ? 'var(--generation)' : 'var(--import)'}">${data.import}</td>
+                      `;
+                      historyBody.appendChild(row);
+                  });
+              });
+        }
+
+        // Botão de voltar
+        document.getElementById('backBtn').addEventListener('click', () => {
+            window.location.href = 'casaze.html';
+        });
+
+        // Logout
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            firebase.auth().signOut().then(() => {
+                window.location.href = 'index.html';
+            });
+        });
+    </script>
+</body>
+</html>

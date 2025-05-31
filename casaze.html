@@ -500,7 +500,9 @@
 
         // Configura eventos
         elements.refreshBtn.addEventListener('click', fetchData);
-        elements.menuBtn.addEventListener('click', () => alert('Menu de opções'));
+        elements.menuBtn.addEventListener('click', () => {
+         window.location.href = 'dashboard.html';
+         });
         
         // Previne zoom com gestos
         document.addEventListener('gesturestart', e => e.preventDefault());
