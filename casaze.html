@@ -347,16 +347,29 @@
             errorDisplay: document.getElementById('errorDisplay'),
             menuBtn: document.getElementById('menuBtn')
         };
+
         // Verifica o status da conexão
-const connectionRef = firebase.database().ref('.info/connected');
-connectionRef.on('value', (snapshot) => {
-    if (snapshot.val() === true) {
-        console.log("Conectado ao Firebase");
-    } else {
-        console.log("Sem conexão com o Firebase");
-        // Pode implementar um cache local aqui
-    }
-});
+        const connectionRef = firebase.database().ref('.info/connected');
+        connectionRef.on('value', (snapshot) => {
+            if (snapshot.val() === true) {
+                console.log("Conectado ao Firebase");
+            } else {
+                console.log("Sem conexão com o Firebase");
+                // Pode implementar um cache local aqui
+            }
+        });
+
+        // Caminhos do Firebase Database
+        function getDbPaths() {
+            const user = firebase.auth().currentUser;
+            if (!user) return null;
+            
+            return {
+                energyData: `users/${user.uid}/energyData`,
+                latestData: `users/${user.uid}/latestData`,
+                stats: `users/${user.uid}/stats`
+            };
+        }
 
         // Funções auxiliares
         const helpers = {
@@ -427,21 +440,69 @@ connectionRef.on('value', (snapshot) => {
             }
         }
 
+        // Salva os dados no Firebase
+        async function saveDataToFirebase() {
+            try {
+                const db = firebase.database();
+                const now = Date.now();
+                const paths = getDbPaths();
+                
+                if (!paths) throw new Error("Usuário não autenticado");
+                
+                // Verifica se temos dados válidos para salvar
+                if (elements.avgVoltage.textContent !== '--' && 
+                    elements.consumptionPower.textContent !== '--') {
+                    
+                    const dataToSave = {
+                        timestamp: now,
+                        voltage: parseFloat(elements.avgVoltage.textContent),
+                        consumption: parseFloat(elements.consumptionPower.textContent),
+                        generation: parseFloat(elements.generationPower.textContent),
+                        import: parseFloat(elements.importPower.textContent)
+                    };
+                    
+                    // Salva no histórico
+                    await db.ref(`${paths.energyData}/${now}`).set(dataToSave);
+                    
+                    // Atualiza os últimos dados
+                    await db.ref(paths.latestData).set(dataToSave);
+                    
+                    console.log("Dados salvos no Firebase:", dataToSave);
+                }
+            } catch (error) {
+                console.error("Erro ao salvar dados no Firebase:", error);
+                helpers.showError(`Erro ao salvar dados: ${error.message}`);
+            }
+        }
+
+        // Atualização automática
+        let intervalId;
+        let saveIntervalId;
+        
+        function startAutoRefresh() {
+            fetchData();
+            intervalId = setInterval(fetchData, CONFIG.refreshInterval);
+            saveIntervalId = setInterval(saveDataToFirebase, CONFIG.saveInterval);
+        }
+        
+        function stopAutoRefresh() {
+            clearInterval(intervalId);
+            clearInterval(saveIntervalId);
+        }
+        
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopAutoRefresh();
+            } else {
+                startAutoRefresh();
+            }
+        });
+
         // Configura eventos
         elements.refreshBtn.addEventListener('click', fetchData);
         elements.menuBtn.addEventListener('click', () => alert('Menu de opções'));
         
-        // Atualização automática
-        let intervalId;
-        function startAutoRefresh() {
-            fetchData();
-            intervalId = setInterval(fetchData, CONFIG.refreshInterval);
-        }
-        
-        document.addEventListener('visibilitychange', () => {
-            document.hidden ? clearInterval(intervalId) : startAutoRefresh();
-        });
-        
+        // Previne zoom com gestos
         document.addEventListener('gesturestart', e => e.preventDefault());
     </script>
 </body>
