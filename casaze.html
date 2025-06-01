@@ -213,26 +213,6 @@
             font-size: 0.8rem;
         }
 
-        .save-status {
-            font-size: 0.7rem;
-            color: #34a853;
-            margin-top: 5px;
-        }
-
-        #debugConsole {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            background-color: rgba(0,0,0,0.7);
-            color: white;
-            padding: 10px;
-            z-index: 1000;
-            max-height: 200px;
-            overflow: auto;
-            font-size: 12px;
-            display: none; /* Inicialmente oculto */
-        }
-
         @media (min-width: 600px) {
             .house-monitor {
                 max-width: 500px;
@@ -289,7 +269,7 @@
         <div class="last-update" id="lastUpdate">
             Última atualização: --
         </div>
-        <div id="saveStatus" class="save-status"></div>
+        
         <div id="errorDisplay" class="error-message"></div>
         
         <div class="controls">
@@ -301,9 +281,6 @@
     </div>
 
     <button class="menu-btn" id="menuBtn">☰</button>
-
-    <!-- Console de debug (pode ser ativado com F7) -->
-    <div id="debugConsole"></div>
 
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
@@ -323,25 +300,15 @@
             measurementId: "G-QSRE1XPK4S"
         };
 
-        // Verifique se o Firebase foi inicializado corretamente
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        } else {
-            firebase.app(); // Já inicializado, use o padrão
-        }
-
-        // Ative a persistência offline
-        firebase.database().setPersistenceEnabled(true)
-            .catch((error) => {
-                console.error("Erro ao ativar persistência:", error);
-            });
+        // Inicialize o Firebase
+        firebase.initializeApp(firebaseConfig);
 
         // Verificação de autenticação
         firebase.auth().onAuthStateChanged((user) => {
             if (!user) {
                 window.location.href = 'index.html';
             } else {
-                // Mostra o nome do usuário
+                // Mostra o nome do usuário (remove o @solar.com)
                 const username = user.email.replace('@solar.com', '');
                 document.querySelector('.header p').textContent += ` | Usuário: ${username}`;
                 
@@ -362,8 +329,7 @@
             deviceId: "c45bbee1fd27",
             authKey: "MjFkM2IxdWlk87450512E000570046BE7579151D5C48F4FED67642847DD24161500B8A5B0CA7000733819F55FC2C",
             refreshInterval: 5000,
-            saveInterval: 60000,
-            debugMode: false // Altere para true para ativar logs detalhados
+            saveInterval: 60000
         };
 
         // Elementos da interface
@@ -379,16 +345,31 @@
             refreshBtn: document.getElementById('refreshBtn'),
             refreshIcon: document.getElementById('refreshIcon'),
             errorDisplay: document.getElementById('errorDisplay'),
-            menuBtn: document.getElementById('menuBtn'),
-            saveStatus: document.getElementById('saveStatus'),
-            debugConsole: document.getElementById('debugConsole')
+            menuBtn: document.getElementById('menuBtn')
         };
 
-        // Variáveis de estado
-        let lastSaveTime = 0;
-        let lastUpdateTime = 0;
-        let intervalId;
-        let saveIntervalId;
+        // Verifica o status da conexão
+        const connectionRef = firebase.database().ref('.info/connected');
+        connectionRef.on('value', (snapshot) => {
+            if (snapshot.val() === true) {
+                console.log("Conectado ao Firebase");
+            } else {
+                console.log("Sem conexão com o Firebase");
+                // Pode implementar um cache local aqui
+            }
+        });
+
+        // Caminhos do Firebase Database
+        function getDbPaths() {
+            const user = firebase.auth().currentUser;
+            if (!user) return null;
+            
+            return {
+                energyData: `users/${user.uid}/energyData`,
+                latestData: `users/${user.uid}/latestData`,
+                stats: `users/${user.uid}/stats`
+            };
+        }
 
         // Funções auxiliares
         const helpers = {
@@ -407,100 +388,53 @@
                 elements.errorDisplay.textContent = message;
                 setTimeout(() => elements.errorDisplay.textContent = '', 5000);
             },
-            showSaveStatus: (message, isError = false) => {
-                elements.saveStatus.textContent = message;
-                elements.saveStatus.style.color = isError ? '#ea4335' : '#34a853';
-                setTimeout(() => elements.saveStatus.textContent = '', 5000);
-            },
             resetValues: () => {
                 elements.avgVoltage.textContent = '--';
                 elements.importPower.textContent = '--';
                 elements.consumptionPower.textContent = '--';
                 elements.generationPower.textContent = '--';
-            },
-            debugLog: (data) => {
-                if (!CONFIG.debugMode) return;
-                
-                elements.debugConsole.style.display = 'block';
-                elements.debugConsole.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${JSON.stringify(data)}</div>`;
-                elements.debugConsole.scrollTop = elements.debugConsole.scrollHeight;
             }
         };
-
-        // Atalho para debug (F7)
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'F7') {
-                CONFIG.debugMode = !CONFIG.debugMode;
-                elements.debugConsole.style.display = CONFIG.debugMode ? 'block' : 'none';
-                console.log(`Modo debug ${CONFIG.debugMode ? 'ativado' : 'desativado'}`);
-            }
-        });
 
         // Busca os dados do Shelly EM
         async function fetchData() {
             helpers.setLoading(true);
+            helpers.resetValues();
             
             try {
                 const timestamp = Date.now();
                 const apiUrl = `https://shelly-96-eu.shelly.cloud/device/status?id=${CONFIG.deviceId}&auth_key=${CONFIG.authKey}&_=${timestamp}`;
                 
-                helpers.debugLog(`Enviando requisição para: ${apiUrl}`);
-                
                 const response = await fetch(apiUrl);
                 
-                if (!response.ok) {
-                    throw new Error(`Erro HTTP: ${response.status} ${response.statusText}`);
-                }
+                if (!response.ok) throw new Error(`Erro na requisição: ${response.status}`);
                 
                 const data = await response.json();
-                helpers.debugLog("Resposta da API:", data);
                 
-                if (!data || !data.isok || !data.data || !data.data.device_status) {
-                    throw new Error("Estrutura de dados inválida da API");
-                }
+                if (!data?.isok || !data?.data?.device_status) throw new Error("Resposta inválida da API");
                 
                 const emeters = data.data.device_status.emeters;
                 const now = new Date();
-                lastUpdateTime = Date.now();
                 
-                if (!emeters || emeters.length < 2) {
-                    throw new Error("Dados dos medidores não encontrados");
+                if (emeters?.length >= 2) {
+                    const avgVoltage = (parseFloat(emeters[0].voltage || 0) + parseFloat(emeters[1].voltage || 0)) / 2;
+                    const importPower = parseFloat(emeters[0].power || 0);
+                    const generationPower = parseFloat(emeters[1].power || 0);
+                    const consumptionPower = importPower + generationPower;
+                    
+                    elements.avgVoltage.textContent = helpers.formatVoltage(avgVoltage);
+                    elements.importPower.textContent = helpers.formatNumber(importPower);
+                    elements.generationPower.textContent = helpers.formatNumber(generationPower);
+                    elements.consumptionPower.textContent = helpers.formatNumber(consumptionPower);
+                    
+                    elements.importCircle.style.backgroundColor = importPower < 0 ? 'var(--generation)' : 'var(--import)';
                 }
                 
-                // Calcula valores com tratamento de erro
-                const voltage1 = parseFloat(emeters[0].voltage) || 0;
-                const voltage2 = parseFloat(emeters[1].voltage) || 0;
-                const avgVoltage = ((voltage1 + voltage2) / 2).toFixed(1);
-                
-                const importPower = parseFloat(emeters[0].power) || 0;
-                const generationPower = parseFloat(emeters[1].power) || 0;
-                const consumptionPower = (importPower + generationPower).toFixed(0);
-                
-                // Atualiza a interface
-                elements.avgVoltage.textContent = avgVoltage;
-                elements.importPower.textContent = Math.abs(importPower).toFixed(0);
-                elements.generationPower.textContent = generationPower.toFixed(0);
-                elements.consumptionPower.textContent = consumptionPower;
-                
-                // Atualiza cores conforme o fluxo de energia
-                elements.importCircle.style.backgroundColor = importPower < 0 ? 'var(--generation)' : 'var(--import)';
-                
-                elements.lastUpdate.textContent = `Última atualização: ${now.toLocaleTimeString('pt-BR')}`;
-                
-                // Retorna os dados para possível salvamento
-                return {
-                    voltage: avgVoltage,
-                    import: importPower,
-                    generation: generationPower,
-                    consumption: consumptionPower,
-                    timestamp: now.getTime()
-                };
+                elements.lastUpdate.textContent = `Última atualização: ${helpers.formatDateTime(now)}`;
                 
             } catch (error) {
                 console.error("Erro ao buscar dados:", error);
                 helpers.showError(`Erro: ${error.message}`);
-                helpers.resetValues();
-                throw error; // Propaga o erro para quem chamou
             } finally {
                 helpers.setLoading(false);
             }
@@ -509,92 +443,46 @@
         // Salva os dados no Firebase
         async function saveDataToFirebase() {
             try {
-                // Primeiro busca os dados atualizados
-                const currentData = await fetchData();
-                
-                if (!currentData) {
-                    throw new Error("Nenhum dado disponível para salvar");
-                }
-                
                 const db = firebase.database();
-                const user = firebase.auth().currentUser;
+                const now = Date.now();
+                const paths = getDbPaths();
                 
-                if (!user) {
-                    throw new Error("Usuário não autenticado");
+                if (!paths) throw new Error("Usuário não autenticado");
+                
+                // Verifica se temos dados válidos para salvar
+                if (elements.avgVoltage.textContent !== '--' && 
+                    elements.consumptionPower.textContent !== '--') {
+                    
+                    const dataToSave = {
+                        timestamp: now,
+                        voltage: parseFloat(elements.avgVoltage.textContent),
+                        consumption: parseFloat(elements.consumptionPower.textContent),
+                        generation: parseFloat(elements.generationPower.textContent),
+                        import: parseFloat(elements.importPower.textContent)
+                    };
+                    
+                    // Salva no histórico
+                    await db.ref(`${paths.energyData}/${now}`).set(dataToSave);
+                    
+                    // Atualiza os últimos dados
+                    await db.ref(paths.latestData).set(dataToSave);
+                    
+                    console.log("Dados salvos no Firebase:", dataToSave);
                 }
-                
-                const dataToSave = {
-                    ...currentData,
-                    deviceId: CONFIG.deviceId
-                };
-                
-                // Caminhos do Firebase
-                const paths = {
-                    energyData: `users/${user.uid}/energyData/${currentData.timestamp}`,
-                    latestData: `users/${user.uid}/latestData`
-                };
-                
-                // Salva nos dois locais simultaneamente
-                const updates = {
-                    [paths.energyData]: dataToSave,
-                    [paths.latestData]: dataToSave
-                };
-                
-                // Executa todas as atualizações em uma única transação
-                await db.ref().update(updates);
-                
-                lastSaveTime = Date.now();
-                helpers.showSaveStatus("Dados salvos com sucesso!");
-                helpers.debugLog("Dados salvos:", dataToSave);
-                
-                return dataToSave;
-                
             } catch (error) {
-                console.error("Falha ao salvar dados:", error);
-                helpers.showSaveStatus(`Erro ao salvar: ${error.message}`, true);
-                
-                // Tenta novamente após 30 segundos em caso de erro
-                setTimeout(saveDataToFirebase, 30000);
-                throw error;
+                console.error("Erro ao salvar dados no Firebase:", error);
+                helpers.showError(`Erro ao salvar dados: ${error.message}`);
             }
         }
 
         // Atualização automática
+        let intervalId;
+        let saveIntervalId;
+        
         function startAutoRefresh() {
-            // Para quaisquer intervalos existentes
-            stopAutoRefresh();
-            
-            // Busca dados imediatamente
-            fetchData().then(() => {
-                // Salva imediatamente após a primeira leitura
-                saveDataToFirebase();
-            }).catch(error => {
-                console.error("Erro na inicialização:", error);
-            });
-            
-            // Configura intervalos
-            intervalId = setInterval(() => {
-                fetchData().catch(error => {
-                    console.error("Erro na atualização periódica:", error);
-                });
-            }, CONFIG.refreshInterval);
-            
-            saveIntervalId = setInterval(() => {
-                saveDataToFirebase().catch(error => {
-                    console.error("Erro no salvamento periódico:", error);
-                });
-            }, CONFIG.saveInterval);
-            
-            // Atualiza status do próximo salvamento
-            setInterval(() => {
-                const nextSaveIn = Math.max(0, CONFIG.saveInterval - (Date.now() - lastSaveTime));
-                elements.saveStatus.textContent = `Próximo salvamento em: ${Math.round(nextSaveIn/1000)}s`;
-            }, 1000);
-            
-            // Força um salvamento quando a página está sendo fechada
-            window.addEventListener('beforeunload', () => {
-                saveDataToFirebase().catch(() => {});
-            });
+            fetchData();
+            intervalId = setInterval(fetchData, CONFIG.refreshInterval);
+            saveIntervalId = setInterval(saveDataToFirebase, CONFIG.saveInterval);
         }
         
         function stopAutoRefresh() {
@@ -611,30 +499,13 @@
         });
 
         // Configura eventos
-        elements.refreshBtn.addEventListener('click', () => {
-            fetchData().then(saveDataToFirebase).catch(() => {});
-        });
-        
+        elements.refreshBtn.addEventListener('click', fetchData);
         elements.menuBtn.addEventListener('click', () => {
-            // Primeiro verifica se temos dados válidos
-            if (elements.avgVoltage.textContent !== '--') {
-                saveDataToFirebase().then(() => {
-                    window.location.href = 'dashboard.html';
-                }).catch(error => {
-                    alert('Erro ao salvar dados antes de redirecionar: ' + error.message);
-                });
-            } else {
-                alert('Aguarde os primeiros dados serem carregados antes de acessar o dashboard');
-            }
-        });
+         window.location.href = 'dashboard.html';
+         });
         
         // Previne zoom com gestos
         document.addEventListener('gesturestart', e => e.preventDefault());
-
-        // Inicia o debug se configurado
-        if (CONFIG.debugMode) {
-            elements.debugConsole.style.display = 'block';
-        }
     </script>
 </body>
 </html>
