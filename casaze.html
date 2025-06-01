@@ -219,6 +219,20 @@
             margin-top: 5px;
         }
 
+        #debugConsole {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            z-index: 1000;
+            max-height: 200px;
+            overflow: auto;
+            font-size: 12px;
+            display: none; /* Inicialmente oculto */
+        }
+
         @media (min-width: 600px) {
             .house-monitor {
                 max-width: 500px;
@@ -288,6 +302,9 @@
 
     <button class="menu-btn" id="menuBtn">☰</button>
 
+    <!-- Console de debug (pode ser ativado com F7) -->
+    <div id="debugConsole"></div>
+
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
@@ -345,7 +362,8 @@
             deviceId: "c45bbee1fd27",
             authKey: "MjFkM2IxdWlk87450512E000570046BE7579151D5C48F4FED67642847DD24161500B8A5B0CA7000733819F55FC2C",
             refreshInterval: 5000,
-            saveInterval: 60000
+            saveInterval: 60000,
+            debugMode: false // Altere para true para ativar logs detalhados
         };
 
         // Elementos da interface
@@ -362,22 +380,15 @@
             refreshIcon: document.getElementById('refreshIcon'),
             errorDisplay: document.getElementById('errorDisplay'),
             menuBtn: document.getElementById('menuBtn'),
-            saveStatus: document.getElementById('saveStatus')
+            saveStatus: document.getElementById('saveStatus'),
+            debugConsole: document.getElementById('debugConsole')
         };
 
         // Variáveis de estado
         let lastSaveTime = 0;
+        let lastUpdateTime = 0;
         let intervalId;
         let saveIntervalId;
-
-        // Verifica o status da conexão
-        const connectionRef = firebase.database().ref('.info/connected');
-        connectionRef.on('value', (snapshot) => {
-            if (snapshot.val() === true && Date.now() - lastSaveTime > CONFIG.saveInterval * 2) {
-                // Se conectado mas não salvou há muito tempo, força um salvamento
-                saveDataToFirebase();
-            }
-        });
 
         // Funções auxiliares
         const helpers = {
@@ -406,8 +417,24 @@
                 elements.importPower.textContent = '--';
                 elements.consumptionPower.textContent = '--';
                 elements.generationPower.textContent = '--';
+            },
+            debugLog: (data) => {
+                if (!CONFIG.debugMode) return;
+                
+                elements.debugConsole.style.display = 'block';
+                elements.debugConsole.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${JSON.stringify(data)}</div>`;
+                elements.debugConsole.scrollTop = elements.debugConsole.scrollHeight;
             }
         };
+
+        // Atalho para debug (F7)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F7') {
+                CONFIG.debugMode = !CONFIG.debugMode;
+                elements.debugConsole.style.display = CONFIG.debugMode ? 'block' : 'none';
+                console.log(`Modo debug ${CONFIG.debugMode ? 'ativado' : 'desativado'}`);
+            }
+        });
 
         // Busca os dados do Shelly EM
         async function fetchData() {
@@ -417,36 +444,63 @@
                 const timestamp = Date.now();
                 const apiUrl = `https://shelly-96-eu.shelly.cloud/device/status?id=${CONFIG.deviceId}&auth_key=${CONFIG.authKey}&_=${timestamp}`;
                 
+                helpers.debugLog(`Enviando requisição para: ${apiUrl}`);
+                
                 const response = await fetch(apiUrl);
                 
-                if (!response.ok) throw new Error(`Erro na requisição: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`Erro HTTP: ${response.status} ${response.statusText}`);
+                }
                 
                 const data = await response.json();
+                helpers.debugLog("Resposta da API:", data);
                 
-                if (!data?.isok || !data?.data?.device_status) throw new Error("Resposta inválida da API");
+                if (!data || !data.isok || !data.data || !data.data.device_status) {
+                    throw new Error("Estrutura de dados inválida da API");
+                }
                 
                 const emeters = data.data.device_status.emeters;
                 const now = new Date();
+                lastUpdateTime = Date.now();
                 
-                if (emeters?.length >= 2) {
-                    const avgVoltage = (parseFloat(emeters[0].voltage || 0) + parseFloat(emeters[1].voltage || 0)) / 2;
-                    const importPower = parseFloat(emeters[0].power || 0);
-                    const generationPower = parseFloat(emeters[1].power || 0);
-                    const consumptionPower = importPower + generationPower;
-                    
-                    elements.avgVoltage.textContent = helpers.formatVoltage(avgVoltage);
-                    elements.importPower.textContent = helpers.formatNumber(importPower);
-                    elements.generationPower.textContent = helpers.formatNumber(generationPower);
-                    elements.consumptionPower.textContent = helpers.formatNumber(consumptionPower);
-                    
-                    elements.importCircle.style.backgroundColor = importPower < 0 ? 'var(--generation)' : 'var(--import)';
+                if (!emeters || emeters.length < 2) {
+                    throw new Error("Dados dos medidores não encontrados");
                 }
                 
-                elements.lastUpdate.textContent = `Última atualização: ${helpers.formatDateTime(now)}`;
+                // Calcula valores com tratamento de erro
+                const voltage1 = parseFloat(emeters[0].voltage) || 0;
+                const voltage2 = parseFloat(emeters[1].voltage) || 0;
+                const avgVoltage = ((voltage1 + voltage2) / 2).toFixed(1);
+                
+                const importPower = parseFloat(emeters[0].power) || 0;
+                const generationPower = parseFloat(emeters[1].power) || 0;
+                const consumptionPower = (importPower + generationPower).toFixed(0);
+                
+                // Atualiza a interface
+                elements.avgVoltage.textContent = avgVoltage;
+                elements.importPower.textContent = Math.abs(importPower).toFixed(0);
+                elements.generationPower.textContent = generationPower.toFixed(0);
+                elements.consumptionPower.textContent = consumptionPower;
+                
+                // Atualiza cores conforme o fluxo de energia
+                elements.importCircle.style.backgroundColor = importPower < 0 ? 'var(--generation)' : 'var(--import)';
+                
+                elements.lastUpdate.textContent = `Última atualização: ${now.toLocaleTimeString('pt-BR')}`;
+                
+                // Retorna os dados para possível salvamento
+                return {
+                    voltage: avgVoltage,
+                    import: importPower,
+                    generation: generationPower,
+                    consumption: consumptionPower,
+                    timestamp: now.getTime()
+                };
                 
             } catch (error) {
                 console.error("Erro ao buscar dados:", error);
                 helpers.showError(`Erro: ${error.message}`);
+                helpers.resetValues();
+                throw error; // Propaga o erro para quem chamou
             } finally {
                 helpers.setLoading(false);
             }
@@ -455,68 +509,45 @@
         // Salva os dados no Firebase
         async function saveDataToFirebase() {
             try {
+                // Primeiro busca os dados atualizados
+                const currentData = await fetchData();
+                
+                if (!currentData) {
+                    throw new Error("Nenhum dado disponível para salvar");
+                }
+                
                 const db = firebase.database();
-                const now = Date.now();
                 const user = firebase.auth().currentUser;
                 
                 if (!user) {
                     throw new Error("Usuário não autenticado");
                 }
                 
-                // Verifica se temos dados válidos para salvar
-                if (elements.avgVoltage.textContent === '--' || 
-                    elements.consumptionPower.textContent === '--') {
-                    return; // Sai se dados não estiverem prontos
-                }
-                
                 const dataToSave = {
-                    timestamp: now,
-                    voltage: parseFloat(elements.avgVoltage.textContent),
-                    consumption: parseFloat(elements.consumptionPower.textContent),
-                    generation: parseFloat(elements.generationPower.textContent),
-                    import: parseFloat(elements.importPower.textContent),
+                    ...currentData,
                     deviceId: CONFIG.deviceId
                 };
                 
                 // Caminhos do Firebase
                 const paths = {
-                    energyData: `users/${user.uid}/energyData/${now}`,
-                    latestData: `users/${user.uid}/latestData`,
-                    dailyStats: `users/${user.uid}/dailyStats/${new Date().toISOString().split('T')[0]}`
+                    energyData: `users/${user.uid}/energyData/${currentData.timestamp}`,
+                    latestData: `users/${user.uid}/latestData`
                 };
                 
-                // Salva nos três locais simultaneamente
+                // Salva nos dois locais simultaneamente
                 const updates = {
                     [paths.energyData]: dataToSave,
                     [paths.latestData]: dataToSave
                 };
-                
-                // Atualiza estatísticas diárias
-                const dailyStatsRef = db.ref(paths.dailyStats);
-                const dailyStatsSnapshot = await dailyStatsRef.once('value');
-                
-                if (dailyStatsSnapshot.exists()) {
-                    const existingData = dailyStatsSnapshot.val();
-                    updates[paths.dailyStats] = {
-                        maxConsumption: Math.max(existingData.maxConsumption || 0, dataToSave.consumption),
-                        totalGeneration: (existingData.totalGeneration || 0) + dataToSave.generation,
-                        lastUpdate: now
-                    };
-                } else {
-                    updates[paths.dailyStats] = {
-                        maxConsumption: dataToSave.consumption,
-                        totalGeneration: dataToSave.generation,
-                        firstUpdate: now,
-                        lastUpdate: now
-                    };
-                }
                 
                 // Executa todas as atualizações em uma única transação
                 await db.ref().update(updates);
                 
                 lastSaveTime = Date.now();
                 helpers.showSaveStatus("Dados salvos com sucesso!");
-                console.log("Dados salvos com sucesso:", dataToSave);
+                helpers.debugLog("Dados salvos:", dataToSave);
+                
+                return dataToSave;
                 
             } catch (error) {
                 console.error("Falha ao salvar dados:", error);
@@ -524,6 +555,7 @@
                 
                 // Tenta novamente após 30 segundos em caso de erro
                 setTimeout(saveDataToFirebase, 30000);
+                throw error;
             }
         }
 
@@ -536,11 +568,22 @@
             fetchData().then(() => {
                 // Salva imediatamente após a primeira leitura
                 saveDataToFirebase();
+            }).catch(error => {
+                console.error("Erro na inicialização:", error);
             });
             
             // Configura intervalos
-            intervalId = setInterval(fetchData, CONFIG.refreshInterval);
-            saveIntervalId = setInterval(saveDataToFirebase, CONFIG.saveInterval);
+            intervalId = setInterval(() => {
+                fetchData().catch(error => {
+                    console.error("Erro na atualização periódica:", error);
+                });
+            }, CONFIG.refreshInterval);
+            
+            saveIntervalId = setInterval(() => {
+                saveDataToFirebase().catch(error => {
+                    console.error("Erro no salvamento periódico:", error);
+                });
+            }, CONFIG.saveInterval);
             
             // Atualiza status do próximo salvamento
             setInterval(() => {
@@ -550,7 +593,7 @@
             
             // Força um salvamento quando a página está sendo fechada
             window.addEventListener('beforeunload', () => {
-                saveDataToFirebase();
+                saveDataToFirebase().catch(() => {});
             });
         }
         
@@ -568,13 +611,30 @@
         });
 
         // Configura eventos
-        elements.refreshBtn.addEventListener('click', fetchData);
+        elements.refreshBtn.addEventListener('click', () => {
+            fetchData().then(saveDataToFirebase).catch(() => {});
+        });
+        
         elements.menuBtn.addEventListener('click', () => {
-            window.location.href = 'dashboard.html';
+            // Primeiro verifica se temos dados válidos
+            if (elements.avgVoltage.textContent !== '--') {
+                saveDataToFirebase().then(() => {
+                    window.location.href = 'dashboard.html';
+                }).catch(error => {
+                    alert('Erro ao salvar dados antes de redirecionar: ' + error.message);
+                });
+            } else {
+                alert('Aguarde os primeiros dados serem carregados antes de acessar o dashboard');
+            }
         });
         
         // Previne zoom com gestos
         document.addEventListener('gesturestart', e => e.preventDefault());
+
+        // Inicia o debug se configurado
+        if (CONFIG.debugMode) {
+            elements.debugConsole.style.display = 'block';
+        }
     </script>
 </body>
 </html>
